@@ -1,0 +1,1249 @@
+---
+title: "LeafletTest"
+author: "Cam Denney"
+date: "7/15/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+
+```{r pressure, echo=FALSE}
+# TO DO LIST
+
+# Clean up to decrease file size, which files are hefty?
+# Incorporate CHP index, already in rl layer
+# how to handle new FI estimates with missing tracts/zips?
+
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
+# libraries, wd, functions ####
+
+library(rgeos)
+library(raster)
+library(rgdal)
+library(ggplot2)
+library(dplyr)
+library(leaflet)
+library(leaflet.extras)
+library(leaflet.extras2)
+library(htmltools)
+library(mapview)
+library(htmlwidgets)
+library(gridExtra)
+library(RColorBrewer)
+library(leafem)
+library(lattice)
+library(leafpop)
+library(leafem)
+library(openxlsx)
+library(networkD3)
+library(geosphere)
+
+
+setwd("/Users/camdenney/Desktop/ACCFB")
+
+'%!in%' <- function(x,y)!('%in%'(x,y))
+
+addLegendCircles <- function(map, colors, labels, sizes, opacity = 0.5, position, group){
+  colorAdditions <- paste0(colors, "; border-radius: 50%;  width:", sizes, "px; height:", sizes, "px")
+  labelAdditions <- paste0("<div style='display: inline-block;height: ", sizes, "px;margin-top: 4px;line-height: ", sizes, "px;'>", labels, "</div>")
+  return(addLegend(map, colors = colorAdditions, labels = labelAdditions, opacity = opacity, position=position, group=group))
+}
+
+
+#read files #####
+
+
+#lo <- readOGR("ActiveAgencies_May2021.gpkg" , stringsAsFactors = FALSE)
+#dlo <- read.csv("AgencyDistro_2021 - Sheet1.csv",stringsAsFactors = FALSE) 
+#dlo[,6:21] <- lapply(dlo[,6:21], as.integer)
+#ddlo <- read.csv("/Users/camdenney/Downloads/AgencyDistro_2021_TableauPrep - Sheet1 (2).csv", stringsAsFactors = FALSE)
+#dlo <- ddlo[which(ddlo$SUM>0),]
+#missinglo <- dlo[which(dlo$Agency.ID %!in% lo$Agency.No),]
+#missingdlo <- lo[which(lo$Agency.No %!in% dlo$Agency.ID),]
+##lo[,35:38] <- lapply(lo[,35:38], as.integer)
+##lo$Spring21 <- round(lo$Spring21,0)
+##table(missinglo$X.AvgWeeklyDistroChangePreMid)
+#addr <- read.csv("/Users/camdenney/Downloads/AgencyGrandMatrix_March2021 - Sheet1.csv",stringsAsFactors = FALSE) 
+#misad <- merge(missinglo,addr, by.x = "Agency.ID", by.y="Agency.No.", all.x = TRUE)
+#misad$State <- "CA"
+#misad$Country <- "United States of America"
+#write.csv(misad, "MissingLocations_June2021.csv")
+
+
+
+
+
+
+lo <- readOGR("Agencies_July2021.gpkg" , stringsAsFactors = FALSE)
+#rz <- readOGR("April2021_ZipCodes_Referrals_Leaflet.gpkg" , stringsAsFactors = FALSE)
+#rzp <- readOGR("ZipReferralsApril2021_Points.gpkg" , stringsAsFactors = FALSE) 
+newlo <- readOGR("ACCFB_NewAgencies_Spring2021.gpkg", stringsAsFactors = FALSE)
+cit <- readOGR("AlCo_Cities_July2021.gpkg")
+#cit <- spTransform(cit, "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0 ")
+rl <- readOGR("Tracts_leaflet_July2021.gpkg")
+alco <- readOGR("/Users/camdenney/Desktop/ACCFB/AlamedaCountyOutline.gpkg")
+cosu <- readOGR("/Users/camdenney/Desktop/ACCFB/AlamedaCounty_SupervisorialDistricts.gpkg")
+fiz <- readOGR("/Users/camdenney/Desktop/ACCFB/AlCo_Zips_July2021.gpkg")
+fiz$FIn <- as.numeric(fiz$FI)
+fiz$MFIn <- as.numeric(fiz$MFI)
+#fiz <- spTransform(fiz, "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0 ")
+ter <- readOGR("ProgramsTerritories_June2021.gpkg" , stringsAsFactors = FALSE)
+sn <- readOGR("SNAP_Retailer.gpkg" , stringsAsFactors = FALSE)
+#lila <- readOGR("FoodAccess_USDA2019_Tracts_LILAhalf10.gpkg", stringsAsFactors = FALSE)  # lila from here: https://www.fns.usda.gov/snap/retailer-locator
+#obi <- readOGR("OBI_SegregationTracts.gpkg", stringsAsFactors = FALSE)    # Added OBI to rl FI_MFI_Leaflet tracts to reduce space
+
+# FRP layers
+don<-readOGR("/Users/camdenney/Desktop/ACCFB/FRP_Donors_ACCFBwebmap.gpkg")
+#agencies <- readOGR("/Users/camdenney/Desktop/ACCFB/FRP_Agencies_ACCFBwebmap.gpkg")
+#flows <- readOGR("/Users/camdenney/Desktop/ACCFB/FRP_Flows_ACCFBwebmap.gpkg")
+#glows <- readOGR("/Users/camdenney/Desktop/ACCFB/FRP_Glows_ACCFBwebmap.gpkg")
+#uniqueagencies <- read.csv("UniqueAgencies_FRP_ACCFBwebmap.csv")
+uniquedon <- read.csv("UniqueDonors_FRP_ACCFBwebmap.csv")
+
+# TESTING popup graphs, need to figure out how to make actual graph #####
+
+#p <- xyplot(LateSIP_WeeklyDistro ~ PreSIP_WeeklyDistro , data=lo@data, col="grey", pch=1)
+#p2 = mget(rep("p", length(lo)))
+#clr1 = rep("grey", length(lo))
+#pch1 = rep(1, length(lo))
+#p3 = lapply(1:length(p2), function(i) {
+#  clr1[i] = "red"
+#  pch1[i] = 20
+#  update(p2[[i]], col = clr1, pch=pch1)
+#})
+
+
+# cleaning and formatting #####
+
+#lo$Status <- ""
+##lo$Pchange <- (as.numeric(lo$Mid.SIP.Weekly.Distro.Avg) - as.numeric(lo$Pre.SIP.Weekly.Distro.Avg))/(as.numeric(lo$Pre.SIP.Weekly.Distro.Avg))
+#lo@data[which(lo$PercChange_PreLateSIP<=-0.9 | is.na(lo$PercChange_PreLateSIP)),]$Status <- "Closed or Minimal"
+#lo@data[which(lo$PercChange_PreLateSIP>-0.9 & lo$PercChange_PreLateSIP<0),]$Status <- "Reduced"
+#lo@data[which(is.na(lo$NewAgency) & lo$PercChange_PreLateSIP >=0),]$Status <- "Increased"
+#lo@data[which(lo$NewAgency=="NEW"),]$Status <- "New"
+#lo$Status <- as.factor(lo$Status)
+
+lila <- rl[which(rl$lila2019=="YES"),]
+
+rl$CHPIgroup <- ifelse(rl$HPI_2018<=25,  "Very Low",
+                      ifelse(rl$HPI_2018>25 & rl$HPI_2018<=50, "Low",
+                             ifelse(rl$HPI_2018>50 & rl$HPI_2018<=75, "Moderate",
+                                    ifelse(rl$HPI_2018>75 & rl$HPI_2018<=100, "High", "No Score"))))
+
+
+lo$Jan2021 <- as.numeric(lo$X01.01.21..01.31.21)
+lo$Feb2021 <- as.numeric(lo$X02.01.21..02.28.210)
+lo$Mar2021 <- as.numeric(lo$X03.01.21..03.31.21)
+lo$April2021 <- as.numeric(lo$X04.01.21..04.30.21)
+lo$May2021 <- as.numeric(lo$X05.01.21..05.31.21)
+lo$June2021 <- as.numeric(lo$X6.1.21..6.30.21)
+lo$AvgSpring21 <- apply(lo@data[,c("Jan2021","Feb2021","Mar2021","April2021", "May2021", "June2021")], 1, mean)
+
+
+lo$ClientVoice <- ifelse(lo$Agency.No %in% 
+                           c("A1250", "A1066","A1088","A1145",
+                             "A1320","A1202","A9430","A1104",
+                              "A1180",  "A9703","A1051", "A1135",
+                             "A9703", "A9411", "A1139", "A1490",
+                              "A9430","A1523"),
+                         'YES', 'NO')
+
+
+lo$healthclinic <- ifelse(lo$Agency.No %in% 
+                         c("A9306","A9439","A9433","A9433-1","A9307","A9242","A9309","A9503","A1557","A9440","A9247","A9310","A9309" ,"A9309-1","A9309-2","A9309-3","A9309-4","A9309-5","A1540","A9815","A1564","A1417","A9243","A9247-1","A1069","A1093","A1255","A1534","A1550"
+                         ),
+                       'YES', 'NO')
+
+#sort(lo[which(lo$healthclinic=="YES"),]$Agency.Name)
+
+helo <- lo[which(lo$healthclinic=='YES'),]
+
+dt <- lo[which(lo$Agency.No %in% c("A9801" , "A9830" , "A9824")),]
+
+cvlo <- lo[which(lo$ClientVoice=='YES'),]
+#cvcsv <- cvlo[,c("Agency.No" , "Agency.Name","Address", "City", "Zip.Code" )]
+#cvcsv <- cbind( cvcsv@data, coordinates(cvcsv))
+#names(cvcsv)[6:7] <- c("Longitude", "Latitude")
+#write.csv(cvcsv, "ClientVoiceLocations_Coordinates.csv")
+#
+lo$DD <- ifelse(substr(lo$Agency.No,2,2)=="9", "YES", "NO")
+ddlo <- lo[which(lo$DD=='YES'),]
+
+erlo <- lo[which(lo$Category=='EMERGENCY'),]
+
+#newlo <- lo[which(lo$NewAgency=='NEW'),]
+
+
+#Helpline Assistance #####
+rzp@data[is.na(rzp@data)] <- 0
+rzp@data[6:9] <- sapply(rzp@data[6:9],as.numeric)
+
+rzpcf<- rzp[which(rzp$April2021_CalFreshAssisted>0),]
+rzp3p<- rzp[which(rzp$April2021_CalFreshFoodNow3rdParty>0),]
+rzppr<- rzp[which(rzp$April2021_CalFreshFoodNowPersonalReferral>0),]
+rzpre<- rzp[which(rzp$April2021_Referrals>0),]
+
+Icon <- makeIcon(
+  iconUrl = "https://svg-clipart.com/svg/blue/x0UljMr-blue-dot-vector.svg",
+  iconWidth = 11, iconHeight = 11,
+  iconAnchorX = 0, iconAnchorY = 0)
+
+
+sn$Radius <- ifelse(sn$StoreType %in% 
+                      c( "Large Grocery Store" ,
+                         "Super Store/Chain Store" , 
+                         "Supermarket"), 8,
+                    ifelse(sn$StoreType %in%
+                             c("Medium Grocery Store" , "Specialty Food Store - Fruits/Vegetables" , "Specialty Food Store - Seafood Products",
+                               "Non-Profit Food Buying Cooperative", "Specialty Food Store - Bakery/Bread",
+                               "Specialty Food Store - Meat/Poultry Products", "Farmers' Market", "Small Grocery Store",
+                               "Combination Grocery/Other"), 5, 3))
+
+
+
+
+# Labels #####
+
+labelsrz_cf <- sprintf(
+  "<b>%s</b><br>CalFresh Assisted: <b>%s</b>",
+  rzp$ZCTA, rzp$April2021_CalFreshAssisted
+) %>% lapply(htmltools::HTML)
+
+labelsrz_re <- sprintf(
+  "<b>%s</b><br>Referrals: <b>%s</b>",
+  rzp$ZCTA, rzp$April2021_Referrals
+) %>% lapply(htmltools::HTML)
+
+
+#labelsFI <- sprintf(
+#  "%s, %s<br>Food Insecurity Rate: <b>%s</b><br>Including Marginally Food Secure: <b>%s</b>",
+#  rl$CES3June2018Update_City, rl$namelsad10, paste0(round(100*rl$FI),'%'),paste0(round(100*rl$MFI),'%')
+#) %>% lapply(htmltools::HTML)
+
+labelsFI <- sprintf(
+  "Food Insecurity Rate: <b>%s</b><br>%s, %s<br><small><small>Feeding America's 2021 Food Insecurity Projections</small></small>",
+ ifelse(is.na(rl$percent_food_insecure_2021),"<small>No estimate for this area</small>", paste0(round(100*rl$percent_food_insecure_2021),'%')),  rl$CES3June2018Update_City, rl$namelsad10
+) %>% lapply(htmltools::HTML)
+
+#labelsfiz <- sprintf(
+#  "<b>%s</b><br>Food Insecurity Rate: <b>%s</b><br>Including Marginally Food Secure: <b>%s</b>",
+#  fiz$ZCTA,paste0(round(100*fiz$FIn),'%'),paste0(round(100*fiz$MFIn),'%')
+#) %>% lapply(htmltools::HTML)
+
+labelsfiz <- sprintf(
+  "<b>%s</b><br>Food Insecurity Rate: <b>%s</b><br><small><small>Feeding America's 2021 Food Insecurity Projections</small></small>",
+  fiz$ZCTA, ifelse(is.na(fiz$percent_food_insecure_2021), "<small>No estimate for this area</small>", paste0(round(100*fiz$percent_food_insecure_2021),'%'))
+) %>% lapply(htmltools::HTML)
+
+
+labelslila <- sprintf(
+  "%s, %s<br>Low Income & Low Food Access (USDA 2019)",
+  lila$namelsad10, lila$CES3June2018Update_City
+) %>% lapply(htmltools::HTML)
+
+labelscit <- sprintf(
+  "<b>%s</b>",
+  cit$NAME
+) %>% lapply(htmltools::HTML)
+
+labelscitfi <- sprintf(
+  "<b>%s</b><br>Food Insecurity Rate: <b>%s</b><br><small><small>Feeding America's 2021 Food Insecurity Projections</small></small>",
+  cit$NAME, ifelse(is.na(cit$FI2021), "<small>No estimate for this area</small>", paste0(round(100*cit$FI2021),'%'))
+) %>% lapply(htmltools::HTML)
+
+labelsobi <- sprintf(
+  "<b>%s</b><br>%s<br><small>(<a href='https://belonging.gis-cdn.net/us_segregation_map/#2010' target='_blank'>Othering & Belonging Institute</a>, 2019 data)</small>",
+  rl$OBI, rl$namelsad10
+) %>% lapply(htmltools::HTML)
+
+labelschp <- sprintf(
+  "Health Conditions: <b>%s</b><br>%s, %s<br><small>(<a href='https://map.healthyplacesindex.org/' target='_blank'>California Healthy Places Index</a>, 2018)</small>",
+  rl$CHPIgroup, rl$CES3June2018Update_City,  rl$namelsad10
+) %>% lapply(htmltools::HTML)
+
+labelschpp <- sprintf(
+  "Health Conditions: <b>%s</b><br>%s, %s<br><br><small>This census tract is healthier than <b>%s</b> of tracts in California.<br>(<a href='https://map.healthyplacesindex.org/' target='_blank'>California Healthy Places Index</a>, 2018)</small>",
+  rl$CHPIgroup, rl$CES3June2018Update_City, rl$namelsad10,
+  ifelse(rl$CHPIgroup=="Very Low", paste0("just ",
+                                                        round(rl$HPI_2018),"%"), 
+                                                            paste0(round(rl$HPI_2018),"%"))
+ 
+) %>% lapply(htmltools::HTML)
+
+labelster <- sprintf(
+  "Region: <b>%s</b><br>Territory: %s<br>Coordinator: %s",
+  ter$Region, ter$Territory, ter$Coordinator) %>% lapply(htmltools::HTML)
+
+#labelsreg <- sprintf(
+#  "Region: <b>%s</b>",
+#  reg$Region) %>% lapply(htmltools::HTML)
+#
+labelscosu <- sprintf(
+  "<b>%s</b> District",
+  cosu$Distr) %>% lapply(htmltools::HTML)
+
+
+labelslo <- sprintf(
+  "<b>%s</b><br>%s<br>%s<br>%s<br>%s",
+  lo$Agency.Name, paste0(lo$Address,' ',lo$City, ', ', lo$Zip.Code),lo$Coordinator, lo$Category, lo$Open.Close.to.Public
+) %>% lapply(htmltools::HTML)
+
+labelssn <- sprintf(
+  "<b>%s</b><br>%s %s, %s %s<br>Type: <b>%s</b>",
+  sn$Store_Name, sn$Address, sn$City, sn$State, sn$Zip5, sn$StoreType
+) %>% lapply(htmltools::HTML)
+
+labelslolbl <- sprintf(
+  "<b>%s</b> (%s)<br>%s<br>Coordinator: %s<br>Agency Type: <b>%s</b><br><b>%s</b><br><br><b>Pounds Distributed</b><br>Jan 2021: <b>%s</b><br>Feb 2021: <b>%s</b><br>March 2021: <b>%s</b><br>April 2021: <b>%s</b><br>May 2021: <b>%s</b><br>June 2021: <b>%s</b><br>",
+  lo$Agency.Name,lo$Agency.No, paste(lo$Address,lo$City, ', ', lo$Zip.Code),lo$Coordinator, lo$Category, lo$Open.Close.to.Public,
+  as.character(prettyNum(round(as.numeric(lo$X01.01.21..01.31.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(lo$X02.01.21..02.28.210),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(lo$X03.01.21..03.31.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(lo$X04.01.21..04.30.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(lo$X05.01.21..05.31.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(lo$X6.1.21..6.30.21),0),big.mark = ","))
+) %>% lapply(htmltools::HTML)
+
+labelscv <- sprintf(
+  "<b>%s</b> (%s)<br>%s<br>Coordinator: %s<br>Agency Type: <b>%s</b><br><b>%s</b><br><br><b>Pounds Distributed</b><br>Jan 2021: <b>%s</b><br>Feb 2021: <b>%s</b><br>March 2021: <b>%s</b><br>April 2021: <b>%s</b><br>May 2021: <b>%s</b><br>June 2021: <b>%s</b><br><br><a href='https://public.tableau.com/profile/cam.denney#!/vizhome/Draft_CVdash/Clients' target='_blank'>Client Voice Dashboard</a>",
+  cvlo$Agency.Name,cvlo$Agency.No, paste(cvlo$Address,cvlo$City, ', ', cvlo$Zip.Code),cvlo$Coordinator, cvlo$Category, cvlo$Open.Close.to.Public,
+  as.character(prettyNum(round(as.numeric(cvlo$X01.01.21..01.31.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(cvlo$X02.01.21..02.28.210),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(cvlo$X03.01.21..03.31.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(cvlo$X04.01.21..04.30.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(cvlo$X05.01.21..05.31.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(cvlo$X6.1.21..6.30.21),0),big.mark = ",")),
+  cvlo$Agency.Name,
+  cvlo$Agency.Name
+) %>% lapply(htmltools::HTML)
+
+labelshe <- sprintf(
+  "<b>%s</b> (%s)<br>%s<br>Coordinator: %s<br>Agency Type: <b>%s</b><br><b>%s</b><br><br><b>Pounds Distributed</b><br>Jan 2021: <b>%s</b><br>Feb 2021: <b>%s</b><br>March 2021: <b>%s</b><br>April 2021: <b>%s</b><br>May 2021: <b>%s</b><br>June 2021: <b>%s</b><br>",
+  helo$Agency.Name,helo$Agency.No, paste(helo$Address,helo$City, ', ', helo$Zip.Code),helo$Coordinator, helo$Category, helo$Open.Close.to.Public,
+  as.character(prettyNum(round(as.numeric(helo$X01.01.21..01.31.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(helo$X02.01.21..02.28.210),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(helo$X03.01.21..03.31.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(helo$X04.01.21..04.30.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(helo$X05.01.21..05.31.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(helo$X6.1.21..6.30.21),0),big.mark = ",")),
+  helo$Agency.Name,
+  helo$Agency.Name
+) %>% lapply(htmltools::HTML)
+
+
+labelsdt <- sprintf(
+  "<b>%s</b> (%s)<br>%s<br>Coordinator: %s<br>Agency Type: <b>%s</b><br><b>%s</b><br><br><b>Pounds Distributed</b><br>Jan 2021: <b>%s</b><br>Feb 2021: <b>%s</b><br>March 2021: <b>%s</b><br>April 2021: <b>%s</b><br>May 2021: <b>%s</b><br>June 2021: <b>%s</b><br><br><a href='https://app.smartsheet.com/b/publish?EQBCT=e5740890d36e43a0a2db0fa4db178fbb' target='_blank'>Drive-Thru Distro Dashboard</a>",
+  dt$Agency.Name,dt$Agency.No, paste(dt$Address,dt$City, ', ', dt$Zip.Code),dt$Coordinator, dt$Category, dt$Open.Close.to.Public,
+  as.character(prettyNum(round(as.numeric(dt$X01.01.21..01.31.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(dt$X02.01.21..02.28.210),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(dt$X03.01.21..03.31.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(dt$X04.01.21..04.30.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(dt$X05.01.21..05.31.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(dt$X6.1.21..6.30.21),0),big.mark = ",")),
+  dt$Agency.Name,
+  dt$Agency.Name
+) %>% lapply(htmltools::HTML)
+
+labelsdd <- sprintf(
+  "<b>%s</b> (%s)<br>%s<br>Coordinator: %s<br>Agency Type: <b>%s</b><br><b>%s</b><br><br><b>Pounds Distributed</b><br>Jan 2021: <b>%s</b><br>Feb 2021: <b>%s</b><br>March 2021: <b>%s</b><br>April 2021: <b>%s</b><br>May 2021: <b>%s</b>June 2021: <b>%s</b>",
+  ddlo$Agency.Name,ddlo$Agency.No, paste(ddlo$Address,ddlo$City, ', ', ddlo$Zip.Code),ddlo$Coordinator, ddlo$Category, ddlo$Open.Close.to.Public,
+  as.character(prettyNum(round(as.numeric(ddlo$X01.01.21..01.31.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(ddlo$X02.01.21..02.28.210),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(ddlo$X03.01.21..03.31.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(ddlo$X04.01.21..04.30.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(ddlo$X05.01.21..05.31.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(ddlo$X6.1.21..6.30.21),0),big.mark = ","))
+) %>% lapply(htmltools::HTML)
+
+labelser <- sprintf(
+  "<b>%s</b> (%s)<br>%s<br>Coordinator: %s<br>Agency Type: <b>%s</b><br><b>%s</b><br><br><b>Pounds Distributed</b><br>Jan 2021: <b>%s</b><br>Feb 2021: <b>%s</b><br>March 2021: <b>%s</b><br>April 2021: <b>%s</b><br>May 2021: <b>%s</b><br>June 2021: <b>%s</b>",
+  erlo$Agency.Name,erlo$Agency.No, paste(erlo$Address,erlo$City, ', ', erlo$Zip.Code), erlo$Coordinator, erlo$Category, erlo$Open.Close.to.Public,
+  as.character(prettyNum(round(as.numeric(erlo$X01.01.21..01.31.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(erlo$X02.01.21..02.28.210),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(erlo$X03.01.21..03.31.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(erlo$X04.01.21..04.30.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(erlo$X05.01.21..05.31.21),0),big.mark = ",")),
+  as.character(prettyNum(round(as.numeric(erlo$X6.1.21..6.30.21),0),big.mark = ","))
+) %>% lapply(htmltools::HTML)
+
+labelsnew <- sprintf(
+  "<b>%s</b><br>%s<br>%s<br>",
+  newlo$Agency, ifelse(is.na(newlo$Program.Na), "", newlo$Program.Na), paste(newlo$Address,newlo$City, ', ', newlo$Zip.Code)
+) %>% lapply(htmltools::HTML)
+
+
+
+label_poundsweek <- sprintf(
+  "<b>%s<br>%s</b> Pounds Distributed per Month<br><small>(Avg of Jan - June 2021)</small>",
+  lo$Agency.Name, as.character(prettyNum(round(lo$AvgSpring21,0),big.mark = ","))
+) %>% lapply(htmltools::HTML)
+
+# FRP labels
+hover <-  sprintf(
+  "%s to %s<br>Days: <b>%s</b> (%s miles)",
+  flows$Agency.Name,  flows$Donor.Name, flows$Days, round(flows$Distance,1)
+) %>% lapply(htmltools::HTML)
+
+labelsdon <- sprintf(
+  "<b>%s</b>  (%s)<br>%s, %s %s<br><br><b>Agency Partners:</b><br>%s",
+  don$Donor.Name, don$Donor.No, don$Donor.Addr, don$Donor.City, don$Donor.Zip, uniquedon[uniquedon$DonorID==uniquedon$DonorID,]$AgencyName
+) %>% lapply(htmltools::HTML)
+
+labelsag <- sprintf(
+  "<b>%s</b>  (%s)<br>%s, %s %s<br>Coordinator: %s<br><br><b>Donor Partners:</b><br>%s",
+  agencies$Agency.Name, agencies$Agency.No, agencies$Address, agencies$City, agencies$Zip.Code,agencies$Coordinator, uniqueagencies[uniqueagencies$AgencyID==uniqueagencies$AgencyID,]$DonorName
+) %>% lapply(htmltools::HTML)
+
+labelsgl <- sprintf(
+  "<b>%s</b>  (%s)<br><br><b>Donor Partners:</b><br>%s",
+  glows$Agency.Name, glows$Agency.No, glows$Donors
+) %>% lapply(htmltools::HTML)
+
+# Logo and text #####
+logo <- "https://www.accfb.org/wp-content/uploads/2017/07/logo.png"
+
+
+health_legend <- "<img src='https://image.flaticon.com/icons/svg/3004/3004458.svg'>Health Agency"
+
+
+tag.map.title <- tags$style(HTML("
+                                 .leaflet-control.map-title { 
+                                 transform: translate(-50%,20%);
+                                 position: fixed !important;
+                                 left: 50%;
+                                 text-align: right;
+                                 padding-left: 10px; 
+                                 padding-right: 100px; 
+                                 background: rgba(255,255,255,0.75);
+                                 font-weight: normal;
+                                 font-size: 16px;
+                                 }
+                                 "))
+
+
+
+title <- tags$div(
+  tag.map.title, HTML("<b>ACCFB</b>")
+) 
+
+tag.map.feedback <- tags$style(HTML("
+  .leaflet-control.map-title { 
+                                    transform: translate(-7px,-23px);
+                                    position: fixed !important;
+                                    text-align: left;
+                                    padding-left: 0px; 
+                                    padding-right: 0px;
+                                    padding-bottom: 0px;
+                                    padding-top: 0px;
+                                    background: rgba(255,255,255,0.4);
+                                    font-size: 13px;
+                                    font-weight: bold;
+                                    }
+                                    "))
+
+feedback <- tags$div(
+  tag.map.feedback, HTML("<a href='https://forms.gle/QRVKq9J4UTcZtGmn7' target='_blank'>Question or Feedback?</a>")
+)  
+
+
+
+
+
+
+healthIcon <- makeIcon(
+  iconUrl = "https://image.flaticon.com/icons/svg/3004/3004458.svg",
+  iconWidth = 24, iconHeight = 60,
+  iconAnchorX = 0, iconAnchorY = 0
+)
+
+#health_legend <- "<img src='https://image.flaticon.com/icons/svg/3004/3004458.svg'> Health Agency"
+
+
+
+# colors #####
+
+cols <- brewer.pal(11,name='Spectral')
+lo.col <-colorFactor(cols,        domain = lo$Category)
+
+
+tercol <- brewer.pal(3,name='Spectral')
+tercols <-colorFactor(tercol,domain = ter$Region)
+
+#regcol <- brewer.pal(3,name='Spectral')
+#regcols <-colorFactor(regcol,domain = reg$Region)
+
+
+
+cosu_cols <- brewer.pal(5,name='Spectral')
+cosucols <-colorFactor(cosu_cols,
+                       domain = cosu$Distr)
+
+citcol <- brewer.pal(11,name='Paired')
+citcols <-colorFactor(citcol,domain = cit$color_id)
+
+#color.gradient <- function(x, colors=c("gray99" , "lemonchiffon2" ,"orange2","orangered4","red3"), colsteps=85) {
+#  return(colorRampPalette(colors) (colsteps) [ findInterval(x, seq(min(x, na.rm=TRUE),max(x,na.rm=TRUE), length.out=colsteps)) ] )}
+
+color.gradient <- function(x, colors=c("gray99" ,"orange", "red3"), colsteps=85) {
+  return(colorRampPalette(colors) (colsteps) [ findInterval(x, seq(min(x, na.rm=TRUE),max(x,na.rm=TRUE), length.out=colsteps)) ] )
+}
+
+color.gradient2 <- function(x, colors=c("gray99" ,"orange", "red", "red2"), colsteps=85) {
+  return(colorRampPalette(colors) (colsteps) [ findInterval(x, seq(min(x, na.rm=TRUE),max(x,na.rm=TRUE), length.out=colsteps)) ] )
+}
+
+
+pal <- colorFactor(rainbow(47), flows$Agency.No)
+
+
+
+# map #############
+wmm <-   leaflet(lo, width="100%") %>% 
+  # map settings ######
+  addProviderTiles(providers$CartoDB.Positron, 
+                   options = providerTileOptions(minZoom = 6, maxZoom = 19)) %>%
+  setView(lng = -122, lat = 37.7 , zoom = 10) %>%
+  addMapPane("verybottom", zIndex = 401) %>%
+  addMapPane("polygons", zIndex = 410) %>%
+  addMapPane("locations", zIndex = 420) %>%
+  addMapPane("bottom", zIndex = 415) %>%
+  addMapPane("middle", zIndex = 418) %>%
+  
+  # map layers
+      # polys #####
+  
+  addPolygons(data=alco,
+              color = "turquoise",
+              weight=3,
+              opacity=0.3,
+              fillOpacity = 0) %>%
+  
+  
+  addPolygons( data = cosu,
+               fillColor = cosucols(cosu$Distr), group="County Supervisor Districts",
+               color = "black",
+               stroke= TRUE,
+               weight=1,
+               opacity=0.2,
+               fillOpacity = 0.4,
+               highlight = highlightOptions(
+                 weight = 2,
+                 opacity = 1,
+                 color = "#666",
+                 fillOpacity = 0.6,
+                 bringToFront = TRUE),
+               label = labelscosu,
+               labelOptions = labelOptions(
+                 style = list("font-weight" = "normal", padding = "3px 8px"),
+                 textsize = "15px",
+                 direction = "auto"),
+               options = pathOptions(pane = "polygons")) %>%
+  
+  
+  addPolygons( data = rl, group="Racial Segregation(2019)",
+               fillColor = ifelse(rl$OBI=="High POC Segregation", "red",
+                                  ifelse(rl$OBI=="High White Segregation", "purple",
+                                         ifelse(rl$OBI=="Racially Integrated", "blue", "gray98"))), 
+               color = "black",
+               stroke= TRUE,
+               weight=1,
+               opacity=0.2,
+               fillOpacity = ifelse(rl$OBI=="Low-Medium Segregation", 0.08, 0.35),
+               highlight = highlightOptions(
+                 weight = 2,
+                 opacity = 1,
+                 color = "#666",
+                 fillOpacity = 0.6,
+                 bringToFront = TRUE),
+               popup = labelsobi,
+               label = labelsobi,
+               labelOptions = labelOptions(
+                 style = list("font-weight" = "normal", padding = "3px 8px"),
+                 textsize = "15px",
+                 direction = "auto"),
+               options = pathOptions(pane = "polygons")) %>%
+  
+  addPolygons( data = rl,
+               group="Healthy-Places Index",
+               fillColor = ifelse(rl$CHPIgroup=="Very Low",  "#2771b5",
+                                  ifelse(rl$CHPIgroup=="Low", "#9ecae1",
+                                         ifelse(rl$CHPIgroup=="Moderate" , "#a6dba0",
+                                                ifelse(rl$CHPIgroup=="High", "#288836", "gray98")))), 
+               color = "black",
+               stroke= TRUE,
+               weight=1,
+               opacity=0.2,
+               fillOpacity = ifelse(is.na(rl$HPI_2018), 0.08, 0.35),
+               highlight = highlightOptions(
+                 weight = 2,
+                 opacity = 1,
+                 color = "#666",
+                 fillOpacity = 0.6,
+                 bringToFront = TRUE),
+               popup=labelschpp,
+               label = labelschp,
+               labelOptions = labelOptions(
+                 style = list("font-weight" = "normal", padding = "3px 8px"),
+                 textsize = "15px",
+                 direction = "auto"),
+               options = pathOptions(pane = "polygons")) %>%
+  
+#  addPolygons( data = rz[!is.na(rz$April2021_CalFreshAssisted),],group="ACCFB CalFresh Assisted (April 2021)",
+#               fillColor = "gray60",
+#               color = "black",
+#               stroke= TRUE,
+#               weight=1,
+#               opacity=0.2,
+#               fillOpacity = 0.1,
+#               highlight = highlightOptions(
+#                 stroke=TRUE,
+#                 weight = 2,
+#                 opacity = 0.7,
+#                 color = "black",
+#                 fillOpacity = 0.2,
+#                 bringToFront = FALSE),
+#               #label = ~DIST_NAME,
+#               labelOptions = labelOptions(
+#                 style = list("font-weight" = "normal", padding = "3px 8px"),
+#                 textsize = "15px",
+#                 direction = "auto"),
+#               options = pathOptions(pane = "verybottom")) %>%
+#  
+#  addPolygons( data = rz[!is.na(rz$April2021_Referrals),],group="ACCFB Referrals by Zip Code (April 2021)",
+#               fillColor = "gray60",
+#               color = "black",
+#               stroke= TRUE,
+#               weight=1,
+#               opacity=0.2,
+#               fillOpacity = 0.1,
+#               highlight = highlightOptions(
+#                 stroke=TRUE,
+#                 weight = 2,
+#                 opacity = 0.7,
+#                 color = "black",
+#                 fillOpacity = 0.2,
+#                 bringToFront = FALSE),
+#               labelOptions = labelOptions(
+#                 style = list("font-weight" = "normal", padding = "3px 8px"),
+#                 textsize = "15px",
+#                 direction = "auto"),
+#               options = pathOptions(pane = "verybottom")) %>%
+  
+  
+  addPolygons( data = cit,
+               fillColor = citcols(cit$color_id),
+               group="Cities",
+               color = "black",
+               stroke= TRUE,
+               weight=1,
+               opacity=0.2,
+               fillOpacity = 0.4,
+               highlight = highlightOptions(
+                 weight = 2,
+                 opacity = 1,
+                 color = "#666",
+                 fillOpacity = 0.6,
+                 bringToFront = TRUE),
+               label = labelscit,
+               labelOptions = labelOptions(
+                 style = list("font-weight" = "normal", padding = "3px 8px"),
+                 textsize = "15px",
+                 direction = "auto"),
+               options = pathOptions(pane = "polygons")) %>%
+  
+  addPolygons( data = cit,
+               fillColor = color.gradient(cit$FI2021),
+               group="Food Insecurity by City (2021)",
+               fillOpacity =  ifelse(is.na(cit$FI2021), 0.1,0.5),
+               color = "black",
+               stroke= TRUE,
+               weight=1,
+               opacity=0.2,
+               highlight = highlightOptions(
+                 weight = 2,
+                 opacity = 0.5,
+                 #color = ifelse(is.na(cit$FI2021), "#E5E7E9", "black"),
+                 color = "black",
+                 fillOpacity =0.6,
+                 bringToFront = TRUE),
+               label = labelscitfi,
+               labelOptions = labelOptions(
+                 style = list("font-weight" = "normal", padding = "3px 8px"),
+                 textsize = "15px",
+                 direction = "auto"),
+               options = pathOptions(pane = "polygons")) %>%
+  
+  addPolygons( data = ter,
+               fillColor = ifelse(ter$Region=="1", "purple", ifelse(ter$Region=="2", "orange", "green")), 
+               group="Programs Regions/Territories",
+               fillOpacity = 0.3,
+               color = "black",
+               stroke= TRUE,
+               weight=1,
+               opacity=0.2,
+               highlight = highlightOptions(
+                 weight = 2,
+                 opacity = 1,
+                 color = "#666",
+                 fillOpacity = 0.6,
+                 bringToFront = TRUE),
+               label = labelster,
+               labelOptions = labelOptions(
+                 style = list("font-weight" = "normal", padding = "3px 8px"),
+                 textsize = "15px",
+                 direction = "auto"),
+               options = pathOptions(pane = "polygons")) %>%
+  
+
+  
+  addPolygons( data = fiz,
+               fillColor = color.gradient2(fiz$percent_food_insecure_2021),
+               group="Food Insecurity by Zip Code (2021)",
+               fillOpacity = ifelse(is.na(fiz$percent_food_insecure_2021),0.15, 0.5),
+               color = "black",
+               stroke= TRUE,
+               weight=1,
+               opacity=0.2,
+               highlight = highlightOptions(
+                 weight = 2,
+                 opacity = 1,
+                 color = "#666",
+                 fillOpacity = 0.6,
+                 bringToFront = TRUE),
+               label = labelsfiz,
+               labelOptions = labelOptions(
+                 style = list("font-weight" = "normal", padding = "3px 8px"),
+                 textsize = "15px",
+                 direction = "auto"),
+               options = pathOptions(pane = "polygons")) %>%
+  
+ addPolygons( data=rl,
+              fillColor = color.gradient2(rl$percent_food_insecure_2021),
+              group="Food Insecurity by Census Tract (2021)",
+              color = "black",
+              stroke= TRUE,
+              weight=0.5,
+              opacity=  0.2,
+              fillOpacity = ifelse(is.na(rl$percent_food_insecure_2021),0.15,0.5),
+              highlight = highlightOptions(
+                weight = 2,
+                opacity = 1,
+                color = "#666",
+                fillOpacity = 0.6,
+                bringToFront = TRUE),
+              label = labelsFI,
+              labelOptions = labelOptions(
+                style = list("font-weight" = "normal", padding = "3px 8px"),
+                textsize = "15px",
+                direction = "auto"),
+              options = pathOptions(pane = "polygons")) %>%
+  
+  addPolygons( data=lila,
+               fillColor = "gray60",
+               group="Low Income & Low Food Access (2019)",
+               color = "blue",
+               stroke= TRUE,
+               weight=1,
+               opacity=0.8,
+               fillOpacity = 0.05,
+            #   highlight = highlightOptions(
+            #     weight = 2,
+            #     opacity = 1,
+            #     color = "#666",
+            #     fillOpacity = 0.6,
+            #     bringToFront = TRUE),
+               label = labelslila,
+              labelOptions = labelOptions(
+                style = list("font-weight" = "normal", padding = "3px 8px"),
+                textsize = "12px",
+                direction = "auto"),
+              options = pathOptions(pane = "bottom")) %>%
+ 
+  
+      # circles #####
+  
+  
+  addCircleMarkers(data=lo, radius = 5, 
+                   color="darkblue", 
+                   fillColor = "blue",
+                   group="All Agency Locations", 
+                   label= ~Agency.Name,
+                   weight = 0.8, stroke = 1, 
+                   popup = labelslolbl, 
+                  # EXPERIMENTING WITH POPUP GRAPHS 
+                  #popup=  leafpop::popupGraph(p3, type = "svg"),
+                   #opacity = 0.9,
+                   labelOptions = labelOptions(
+                     style = list("font-weight" = "normal", padding = "3px 8px"),
+                     textsize = "15px",
+                     direction = "auto"),
+                   options = pathOptions(pane = "locations"))%>%
+  
+  addCircleMarkers(data=sn,
+                   radius = ~Radius, 
+                   color="green", 
+                   fillColor = "#38BE32",
+                   group="SNAP Retailers (2019)", 
+                   label= ~Store_Name,
+                   weight = 0.8, stroke = 1, 
+                   popup = labelssn, 
+                   labelOptions = labelOptions(
+                     style = list("font-weight" = "normal", padding = "3px 8px"),
+                     textsize = "15px",
+                     direction = "auto"),
+                   options = pathOptions(pane = "locations"))%>%
+
+  
+  addCircleMarkers(
+    radius = 0, opacity = 0, fillOpacity = 0,
+    color="darkblue", 
+    fillColor = "blue",
+    group="SearchLocations", 
+    weight = 0, stroke = FALSE,
+    label = ~Agency.Name
+    )%>%
+  
+  addCircleMarkers( data=cvlo,
+                    radius = 8, 
+                    color="purple", 
+                    fillColor = "pink",
+                    fillOpacity = 0.3,
+                    weight = 0.9,
+                    stroke=1,
+                    popup = labelscv, 
+                    group="Locations - Client Voice",
+                    label = ~Agency.Name,
+                    labelOptions = labelOptions(
+                      style = list("font-weight" = "normal", padding = "3px 8px"),
+                      textsize = "12px",interactive = TRUE,
+                      direction = "auto"),
+                    options = pathOptions(pane = "locations"))%>%
+  
+  addMarkers( data=helo, icon=healthIcon,
+                    popup = labelshe, 
+                    group="Locations - Health",
+                    label = ~Agency.Name,
+                    labelOptions = labelOptions(
+                      style = list("font-weight" = "normal", padding = "3px 8px"),
+                      textsize = "12px",interactive = TRUE,
+                      direction = "auto"),
+                    options = pathOptions(pane = "locations"))%>%
+  
+  addCircleMarkers( data=erlo,
+                    radius = 8, 
+                    color="darkred", 
+                    fillColor = "red",
+                    fillOpacity = 0.3,
+                    weight = 0.7,
+                    popup = labelser, 
+                    group="Locations - Emergency",
+                    label = ~Agency.Name,
+                    labelOptions = labelOptions(
+                      style = list("font-weight" = "normal", padding = "3px 8px"),
+                      textsize = "12px",interactive = TRUE,
+                      direction = "auto"),
+                    options = pathOptions(pane = "locations"))%>%
+  
+  addCircleMarkers( data=dt,
+                    radius = 8, 
+                    color="orange", 
+                    fillColor = "orange",
+                    fillOpacity = 0.3,
+                    weight = 1.3,
+                    popup = labelsdt, 
+                    group="Locations - Drive-Thru",
+                    label = ~Agency.Name,
+                    labelOptions = labelOptions(
+                      style = list("font-weight" = "normal", padding = "3px 8px"),
+                      textsize = "12px",interactive = TRUE,
+                      direction = "auto"),
+                    options = pathOptions(pane = "locations"))%>%
+  
+  addCircleMarkers( data=newlo,
+                    radius = 8, 
+                    color="blue", 
+                    fillColor = "lightblue",
+                    fillOpacity = 0.3,
+                    weight = 0.7,
+                    popup = labelsnew, 
+                    group="Locations - New",
+                    label = ~Agency,
+                    labelOptions = labelOptions(
+                      style = list("font-weight" = "normal", padding = "3px 8px"),
+                      textsize = "12px",interactive = TRUE,
+                      direction = "auto"),
+                    options = pathOptions(pane = "locations"))%>%
+  
+  addCircleMarkers( data=ddlo,
+                    radius = 8, 
+                    color="midnightblue", 
+                    fillColor = "purple",
+                    fillOpacity = 0.3,
+                    weight = 0.7,
+                    popup = labelsdd, 
+                    label= ~Agency.Name,
+                    group="Locations - Direct Distribution", 
+                    labelOptions = labelOptions(
+                      style = list("font-weight" = "normal", padding = "3px 8px"),
+                      textsize = "12px",
+                      direction = "auto"),
+                    options = pathOptions(pane = "locations"))%>%
+  
+  
+  addCircleMarkers(#clusterOptions = markerClusterOptions(),
+    radius = (as.numeric(lo$AvgSpring21)/30)^(1/2.5)+1,
+    color="blue", 
+    fillColor = "lightblue",
+    #color = lo.col(lo$Category),
+    #fillColor = lo.col(lo$Category),
+    group="Pounds Distributed - 2021",
+    label= label_poundsweek,
+    fillOpacity = 0.3,
+    weight = 0.8, stroke = 1, 
+    popup = labelslolbl, opacity = 0.9,
+    labelOptions = labelOptions(
+      style = list("font-weight" = "normal", padding = "3px 8px"),
+      textsize = "12px",
+      direction = "auto"),
+    options = pathOptions(pane = "locations")) %>%
+  
+#  addCircleMarkers(data=rzp,
+#                   radius = rzp$April2021_CalFreshAssisted/2,
+#                   color="blue", 
+#                   fillColor = "lightblue",
+#                   group="ACCFB CalFresh Assisted (April 2021)",
+#                   label= labelsrz_cf,
+#                   fillOpacity = 0.2,
+#                   weight = 0.8, stroke = 1, 
+#                   opacity = 0.9,
+#                   labelOptions = labelOptions(
+#                     style = list("font-weight" = "normal", padding = "3px 8px"),
+#                     textsize = "12px",
+#                     direction = "auto"),
+#                   options = pathOptions(pane = "locations")) %>%
+#  
+#  
+#  
+#  addCircleMarkers(data=rzp,
+#                   radius = rzp$April2021_Referrals/2,
+#                   color="blue", 
+#                   fillColor = "lightblue",
+#                   group="ACCFB Referrals by Zip Code (April 2021)",
+#                   label= labelsrz_re,
+#                   fillOpacity = 0.2,
+#                   weight = 0.8, stroke = 1, 
+#                   opacity = 0.9,
+#                   labelOptions = labelOptions(
+#                     style = list("font-weight" = "normal", padding = "3px 8px"),
+#                     textsize = "12px",
+#                     direction = "auto"),
+#                   options = pathOptions(pane = "locations")) %>%
+#  
+  
+  
+#  addCircleMarkers(color=ifelse(lo$Status=="Closed or Minimal", "darkred", ifelse(lo$Status=="Reduced", "darkorange",ifelse(lo$Status=="New", "darkgreen", ifelse(lo$Status=="Increased", "darkblue", "grey55")))), 
+#                   radius = 6,
+#                   fillColor = ifelse(lo$Status=="Closed or Minimal", "red", ifelse(lo$Status=="Reduced", "orange",ifelse(lo$Status=="New", "green", ifelse(lo$Status=="Increased", "blue", "grey55")))) ,
+#                   group="Distribution Status", 
+#                   weight = 0.7, stroke = 1, 
+#                   popup = labelslolbl,
+#                   label = label_status,
+#                   labelOptions = labelOptions(
+#                     style = list("font-weight" = "normal", padding = "3px 8px"),
+#                     textsize = "12px",
+#                     direction = "auto"),
+#                   options = pathOptions(pane = "locations")) %>%
+  
+  
+  
+  
+      # FRP layers #####
+addCircleMarkers(data=don, label=~Donor.Name,
+                 radius = 5, 
+                 color="green", 
+                 fillColor = "#38BE32",
+                 group="Donors - Food Recovery Program", 
+                 weight =1.5, stroke = 1, 
+                 popup = labelsdon, 
+                 fillOpacity = 0.2,
+                 labelOptions = labelOptions(
+                   style = list("font-weight" = "normal", padding = "3px 8px"),
+                   textsize = "15px",
+                   direction = "auto"),
+                 options = pathOptions(pane = "locations"))%>%
+#  
+#  addCircleMarkers(data=agencies, label=~Agency.Name,
+#                   ##clusterOptions = markerClusterOptions(),
+#                   radius = 6, 
+#                   color="darkblue", 
+#                   fillColor = "blue",
+#                   group="Food Recovery Program", 
+#                   weight = 0.9, stroke = 1.2, 
+#                   popup = labelsag, 
+#                   #opacity = 0.9,
+#                   labelOptions = labelOptions(
+#                     style = list("font-weight" = "normal", padding = "3px 8px"),
+#                     textsize = "15px",
+#                     direction = "auto"),
+#                   options = pathOptions(pane = "locations"))%>%
+#  
+#  addPolylines(data = flows, stroke = 2,weight = 2, label = hover,
+#               group="Food Recovery Program", 
+#               highlight = highlightOptions(
+#                 weight = 3,
+#                 opacity = 1,
+#                 color = "black",
+#                 fillOpacity = 0.8,
+#                 bringToFront = TRUE),
+#               color = ~pal(Agency.No),
+#               options = pathOptions(pane = "middle")) %>%
+#  
+#  addPolygons(data = glows, stroke = 6, weight = 15,fill = FALSE,
+#              group="Food Recovery Program", 
+#              opacity = 0.00001,fillOpacity = 0.0001,
+#              label=~Agency.Name,
+#              options = pathOptions(pane = "bottom"),
+#              popup = labelsgl,
+#              highlight = highlightOptions(
+#                weight = 3,
+#                fill=1,
+#                fillColor = "#D0D0D0",
+#                opacity = 0.6,
+#                color = "#A5A5A5",
+#                fillOpacity = 0.6,
+#                bringToFront = FALSE)) %>%
+#  
+#  
+          # map accessories #####
+  
+  leafem::addLogo(logo,
+                  src = "remote",
+                  position = "bottomright",
+                  offset.x = 5,
+                  offset.y = 16,
+                  width = 208,
+                  height = 52) %>%
+  
+  addFullscreenControl() %>%
+  
+
+  
+  addControl(feedback, position = "bottomleft", className="map-title")%>%
+  
+
+#  addLegend(title = "Change in Distribution<br>Since Shelter-in-Place", 
+#            colors = c("red", "orange", "blue","green" ),
+#            #values= c("Closed","Decreased","New","Increased"),
+#            labels=c("Closed or Minimal","Reduced","Increased", "New Location"),
+#            opacity = 1, position = "bottomright",
+#            group= "Distribution Status")%>%
+  
+
+  
+
+  addLayersControl(
+    overlayGroups = c("All Agency Locations" ,
+                      "Locations - Drive-Thru",
+                      "Locations - Direct Distribution", 
+                      "Locations - Emergency",
+                      "Locations - New",
+                      "Locations - Client Voice",
+                      "Locations - Health",
+                      "Pounds Distributed - 2021",
+                      "Donors - Food Recovery Program",
+                      #"Distribution Status",
+                      #"ACCFB Referrals by Zip Code (April 2021)",
+                      #"ACCFB CalFresh Assisted (April 2021)",
+                      "SNAP Retailers (2019)",
+                      #"Racial Segregation(2019)",
+                      #"Food Recovery Program",
+                      "Low Income & Low Food Access (2019)"
+                      ),
+    baseGroups = c(
+      "Food Insecurity by Census Tract (2021)",
+      "Food Insecurity by Zip Code (2021)", 
+      "Food Insecurity by City (2021)",
+      "Programs Regions/Territories",
+      "County Supervisor Districts", 
+      "Cities", 
+      "Racial Segregation(2019)",
+      "Healthy-Places Index",
+      "None"),
+    options = layersControlOptions(collapsed = FALSE)) %>%
+  
+ 
+  
+  addSearchFeatures(
+    targetGroups = "SearchLocations",
+    options = searchFeaturesOptions(collapsed = FALSE, textPlaceholder = "Search ACCFB Agencies",
+                                    propertyName = "label",position = "topright",
+                                    zoom=17, openPopup = TRUE, firstTipSubmit = TRUE,
+                                    autoCollapse = FALSE, hideMarkerOnCollapse = TRUE )) %>%
+  
+  
+  
+  addSearchOSM(options = searchOptions(collapsed = TRUE, 
+                                       #autoCollapse = TRUE,
+                                       autoCollapseTime = 5,
+                                       hideMarkerOnCollapse = TRUE,
+                                       position = "topleft",
+                                        minLength = 2 ))%>%
+# Legends #####
+  
+  addLegendCircles(colors =c("blue" ), 
+                   position="topright", 
+                   sizes = c(15),
+                   labels = c("Agency Location"),
+                   group="All Agency Locations")%>%
+  
+  addLegendCircles(colors =c("orange" ), 
+                   position="topright", 
+                   sizes = c(20),
+                   labels = c("Drive-Thru Pantry"),
+                   group= "Locations - Drive-Thru")%>%
+  
+  addLegendCircles(colors =c("purple" ), 
+                   position="topright", 
+                   sizes = c(20),
+                   labels = c("Direct Distro"),
+                   group= "Locations - Direct Distribution")%>%
+  
+  addLegendCircles(colors =c("red" ), 
+                   position="topright", 
+                   sizes = c(20),
+                   labels = c("Emergency Distro"),
+                   group= "Locations - Emergency")%>%
+  
+  
+  addLegendCircles(colors =c("lightblue" ), 
+                   position="topright", 
+                   sizes = c(20),
+                   labels = c("New Agency"),
+                   group= "Locations - New")%>%
+  
+  addLegendCircles(colors =c("pink" ), 
+                   position="topright", 
+                   sizes = c(20),
+                   labels = c("Client Voice Agency"),
+                   group= "Locations - Client Voice")%>%
+  
+  addLegendCircles(colors =c("green", "green", "green" ), 
+                   position="topright", 
+                   sizes = c(18,12,8),
+                   labels = c("Supermarket or Large Grocery" , 
+                              "Medium, Small, or Specialty Grocery" , 
+                              "Convenience Store or Other"),
+                   group= "SNAP Retailers (2019)")%>%
+  
+#  addLegendCircles(colors =c("blue", "green" ), 
+#                   position="topright", 
+#                   sizes = c(15,15),
+#                   labels = c("FRP Agency" ,"FRP Donor"),
+#                   group="Food Recovery Program")%>%
+  
+  addLegendCircles(colors =c( "green" ), 
+                   position="topright", 
+                   sizes = c(15),
+                   labels = c("FRP Donor"),
+                   group="Donors - Food Recovery Program")%>%
+  
+  addLegend(group="Racial Segregation(2019)",title = "Othering & Belonging Institute (2019)",
+            colors =c("purple", "red", "#C4C4C4", "blue"), 
+            position="topright",
+            labels = c("High White Segregation", 
+                       "High POC Segregation", 
+                       "Low-Medium Segregation",
+                       "Racially Integrated"),
+            className = "info legend RacialSegregation(2019)")%>%
+  
+  addLegend(group="Programs Regions/Territories",
+            colors =c("purple", "orange", "green"), 
+            position="topright",
+            labels = c("Region 1", 
+                       "Region 2", 
+                       "Region 3"),
+            className = "info legend ProgramsRegions/Territories")%>%
+  
+  addLegend(group="Healthy-Places Index",
+            title = "California Healthy Places Index (2018)",
+            colors =rev(c("#2771b5","#9ecae1", "#a6dba0", "#288836")), 
+            position="topright",
+            labels = rev(c("Very Low Health Conditions", 
+                       "Low Health Conditions", 
+                       "Moderate Health Conditions",
+                       "High Health Conditions")),
+            className = "info legend Healthy-PlacesIndex")%>%
+  
+  #addControl(html = health_legend,group="Locations - Health", position = "topright")%>%
+
+  
+
+# Hide Groups #####
+
+  hideGroup(c(
+    "Food Insecurity by Census Tract (2021)",
+    "SearchLocations",
+    "Racial Segregation(2019)",
+    "Food Insecurity by City (2021)",
+    "ACCFB Referrals by Zip Code (April 2021)",
+    "ACCFB CalFresh Assisted (April 2021)",
+    "Donors - Food Recovery Program",
+    "Food Insecurity by Zip Code (2021)", "Cities", 
+    "County Supervisor Districts", 
+    "Programs Regions/Territories",
+    "Locations - Emergency",
+    "Locations - New",
+    "Locations - Drive-Thru",
+    "Pounds Distributed - 2021",
+    # "Distribution Status",
+    "Locations - Client Voice",
+    "Locations - Direct Distribution",
+    "SNAP Retailers (2019)",
+    #"Food Recovery Program",
+    "Locations - Health",
+    "Healthy-Places Index",
+    "Low Income & Low Food Access (2019)")) %>%
+  
+
+addHistory(options = historyOptions(position = "topleft")) %>%
+
+  htmlwidgets::onRender("
+      function(el, x) {
+                       var updateLegend = function () {
+                       var selectedGroup = document.querySelectorAll('input:checked')[0].nextSibling.innerText.substr(1);
+                       var selectedClass = selectedGroup.replace(' ', '');
+                       document.querySelectorAll('.legend').forEach(a => a.hidden=true);
+                       document.querySelectorAll('.legend').forEach(l => {
+                       if (l.classList.contains(selectedClass)) l.hidden=false;
+                       });
+                       };
+                       updateLegend();
+                       this.on('baselayerchange', el => updateLegend());
+                       }"
+  ) 
+  
+  # Above code from here: https://github.com/rstudio/leaflet/issues/477
+  
+  
+   
+# view map ####
+wmm$sizingPolicy$defaultHeight <- 620
+
+
+
+
+# writing map file #############
+```
+
+
+
+
+```{r}
+wmm
+```
